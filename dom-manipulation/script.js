@@ -1,5 +1,9 @@
+
 // Quote array
 let quotes = [];
+
+// Declare server URL
+const serverUrl = 'https://jsonplaceholder.typicode.com/posts';
 
 // Load quotes from local storage
 function loadQuotes() {
@@ -741,7 +745,7 @@ function exportToJsonFile() {
 // Function to import quotes from a JSON file
 function importFromJsonFile(event) {
     const fileReader = new FileReader();
-    fileReader.onload = function(event) {
+    fileReader.onload = function (event) {
         const importedQuotes = JSON.parse(event.target.result);
         quotes.push(...importedQuotes);
         saveQuotes();
@@ -755,43 +759,81 @@ async function fetchQuotesFromServer() {
     try {
         const response = await fetch(serverUrl);
         const serverQuotes = await response.json();
-        // Merge server quotes with local quotes
-        serverQuotes.forEach(serverQuote => {
-            const categoryObj = quotes.find(q => q.category.toLowerCase() === serverQuote.category.toLowerCase());
-            if (categoryObj) {
-                if (!categoryObj.quotes.some(q => q.text === serverQuote.text && q.author === serverQuote.author)) {
-                    categoryObj.quotes.push({ text: serverQuote.text, author: serverQuote.author });
-                }
-            } else {
-                quotes.push({
-                    category: serverQuote.category,
-                    quotes: [{ text: serverQuote.text, author: serverQuote.author }]
-                });
-            }
-        });
-        saveQuotes();
-        populateCategories();
-        filterQuotes();
+        return serverQuotes;
     } catch (error) {
         console.error('Error fetching quotes from server:', error);
+        return [];
     }
 }
 
 // Function to post a new quote to the server
 async function postQuoteToServer(quote) {
     try {
-        await fetch(serverUrl, {
+        const response = await fetch(serverUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify(quote)
         });
+        const newQuote = await response.json();
+        return newQuote;
     } catch (error) {
         console.error('Error posting quote to server:', error);
+        return null;
     }
 }
 
+// Function to sync local data with the server
+async function syncQuotes() {
+    const localQuotes = JSON.parse(localStorage.getItem('quotes')) || [];
+    const serverQuotes = await fetchQuotesFromServer();
+
+    // Simple conflict resolution: server data takes precedence
+    serverQuotes.forEach(serverQuote => {
+        const categoryObj = localQuotes.find(q => q.category.toLowerCase() === serverQuote.category.toLowerCase());
+        if (categoryObj) {
+            const localQuote = categoryObj.quotes.find(q => q.text === serverQuote.text && q.author === serverQuote.author);
+            if (localQuote) {
+                // Conflict detected, resolve by taking server data
+                localQuote.text = serverQuote.text;
+                localQuote.author = serverQuote.author;
+            } else {
+                categoryObj.quotes.push({ text: serverQuote.text, author: serverQuote.author });
+            }
+        } else {
+            localQuotes.push({
+                category: serverQuote.category,
+                quotes: [{ text: serverQuote.text, author: serverQuote.author }]
+            });
+        }
+    });
+
+    localStorage.setItem('quotes', JSON.stringify(localQuotes));
+    notifyUser('Quotes synced with server!');
+    populateCategories();
+    filterQuotes();
+}
+
+// Periodic data fetching
+setInterval(syncQuotes, 60000); // Sync every 60 seconds
+
+// Function to notify user
+function notifyUser(message) {
+    const notificationDiv = document.getElementById('notification');
+    notificationDiv.innerText = message;
+}
+
+// Function to manually resolve conflicts
+async function resolveConflictsManually() {
+    const localQuotes = JSON.parse(localStorage.getItem('quotes')) || [];
+    const serverQuotes = await fetchQuotesFromServer();
+
+    // Display conflicts and allow user to resolve them
+    console.log('Local Quotes:', localQuotes);
+    console.log('Server Quotes:', serverQuotes);
+    notifyUser('Conflicts displayed in console for manual resolution.');
+}
 
 // Load quotes from local storage on initialization
 loadQuotes();
